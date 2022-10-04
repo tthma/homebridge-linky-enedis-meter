@@ -1,44 +1,48 @@
-var inherits = require('util').inherits;
-var Service, Characteristic;
-var request = require('request');
-var FakeGatoHistoryService = require('fakegato-history');
-const version = require('./package.json').version;
 
+
+
+var inherits = require('util').inherits;
+var Service, Characteristic, pHomebridge;
+var request = require('request');
+var fs = require('fs');
+var path = require('path');
+var FakeGatoHistoryService = require('fakegato-history');
+const { fail } = require('assert');
+const version = require('./package.json').version;
+var Linky = require('linky');
+const fakegatoStorage = require('fakegato-history/fakegato-storage');
+const consoleerror = require('console');
 module.exports = function (homebridge) {
+
 	Service = homebridge.hap.Service;
 	Characteristic = homebridge.hap.Characteristic;
 	Accessory = homebridge.platformAccessory;
 	UUIDGen = homebridge.hap.uuid;
+
+	pHomebridge = homebridge;
+	hap = homebridge.hap;
 	FakeGatoHistoryService = require('fakegato-history')(homebridge);
-	homebridge.registerAccessory("homebridge-3em-energy-meter", "3EMEnergyMeter", EnergyMeter);
+	homebridge.registerAccessory("homebridge-linky-enedis-meter", "EnergyMeter", EnergyMeter);
+
 }
 
-function EnergyMeter (log, config) {
+function EnergyMeter(log, config) {
+
+
+
 	this.log = log;
-	this.ip = config["ip"] || "127.0.0.1";
-	this.url = "http://" + this.ip + "/status/emeters?";
-	this.auth = config["auth"];
+	this.usagePointId = config["usagePointId"] || "";
+	this.accessToken = config["accessToken"] || "";
+	this.refreshToken = config["refreshToken"] || "";
+
 	this.name = config["name"];
 	this.displayName = config["name"];
-	this.timeout = config["timeout"] || 5000;
-	this.http_method = "GET";
+	this.configFirstDate = config["firstDateRecord"] || new Date().toISOString().split("T")[0];
 	this.update_interval = Number(config["update_interval"] || 10000);
-	this.use_em = config["use_em"] || false;
-	this.use_em_mode = config["use_em_mode"] || 0; 
-	this.negative_handling_mode = config["negative_handling_mode"] || 0; 	
-	this.use_pf = config["use_pf"] || false;
-	this.debug_log = config["debug_log"] || false;
-	this.serial = config.serial || "9000000";
-
+	this.serial = this.usagePointId;
 	// internal variables
 	this.waiting_response = false;
-	this.powerConsumption = 0;
-	this.totalPowerConsumption = 0;
-	this.voltage1 = 0;
-	this.ampere1 = 0;
-	this.pf0 = 1;
-	this.pf1 = 1;
-	this.pf2 = 1;
+
 
 	var EvePowerConsumption = function () {
 		Characteristic.call(this, 'Consumption', 'E863F10D-079E-48FF-8F27-9C2605A29F52');
@@ -97,204 +101,283 @@ function EnergyMeter (log, config) {
 		});
 		this.value = this.getDefaultValue();
 	};
+
+
 	EveAmpere1.UUID = 'E863F126-079E-48FF-8F27-9C2605A29F52';
 	inherits(EveAmpere1, Characteristic);
+
+	var EveResetHistory = function () {
+		Characteristic.call(this, 'Time from totalizer reset', 'E863F112-079E-48FF-8F27-9C2605A29F52');
+		this.setProps({
+			format: Characteristic.Formats.UINT32,
+			unit: 'Time from totalizer reset',
+			perms: [Characteristic.Perms.READ, Characteristic.Perms.NOTIFY, Characteristic.Perms.WRITE]
+		});
+		this.value = this.getDefaultValue();
+
+	};
+
+	EveResetHistory.UUID = 'E863F112-079E-48FF-8F27-9C2605A29F52';
+	inherits(EveResetHistory, Characteristic);
+
 
 	var PowerMeterService = function (displayName, subtype) {
 		Service.call(this, displayName, '00000001-0000-1777-8000-775D67EC4377', subtype);
 		this.addCharacteristic(EvePowerConsumption);
 		this.addOptionalCharacteristic(EveTotalConsumption);
 		this.addOptionalCharacteristic(EveVoltage1);
-    this.addOptionalCharacteristic(EveAmpere1);
+		this.addOptionalCharacteristic(EveAmpere1);
+		this.addOptionalCharacteristic(EveResetHistory);
 	};
 	PowerMeterService.UUID = '00000001-0000-1777-8000-775D67EC4377';
 	inherits(PowerMeterService, Service);
 
 	// local vars
+	this._EveResetHistory = EveResetHistory;
 	this._EvePowerConsumption = EvePowerConsumption;
 	this._EveTotalConsumption = EveTotalConsumption;
 	this._EveVoltage1 = EveVoltage1;
-  this._EveAmpere1 = EveAmpere1;
+	this._EveAmpere1 = EveAmpere1;
 
-  // info
-  this.informationService = new Service.AccessoryInformation();
+	// info
+	this.informationService = new Service.AccessoryInformation();
 	this.informationService
-			.setCharacteristic(Characteristic.Manufacturer, "Shelly - produdegr")
-			.setCharacteristic(Characteristic.Model, "Shelly 3EM")
-			.setCharacteristic(Characteristic.FirmwareRevision, version)
-			.setCharacteristic(Characteristic.SerialNumber, this.serial);
+		.setCharacteristic(Characteristic.Manufacturer, "Linky - Enedis")
+		.setCharacteristic(Characteristic.Model, "Linky")
+		.setCharacteristic(Characteristic.FirmwareRevision, version)
+		.setCharacteristic(Characteristic.SerialNumber, this.serial);
 
 	// construct service
 	this.service = new PowerMeterService(this.name);
 	this.service.getCharacteristic(this._EvePowerConsumption).on('get', this.getPowerConsumption.bind(this));
 	this.service.addCharacteristic(this._EveTotalConsumption).on('get', this.getTotalConsumption.bind(this));
-  this.service.addCharacteristic(this._EveVoltage1).on('get', this.getVoltage1.bind(this));
-  this.service.addCharacteristic(this._EveAmpere1).on('get', this.getAmpere1.bind(this));
+	this.service.addCharacteristic(this._EveVoltage1).on('get', this.getVoltage1.bind(this));
+	this.service.addCharacteristic(this._EveAmpere1).on('get', this.getAmpere1.bind(this));
+	this.service.addCharacteristic(this._EveResetHistory).on('set', this.setResetEvent.bind(this));;
+	// add fakegato
+	this.historyService = new FakeGatoHistoryService("energy", this, { size: 18000, disableTimer: true, disableRepeatLastData: true, storage: 'fs' });
 
-  // add fakegato
-  this.historyService = new FakeGatoHistoryService("energy", this,{storage:'fs'});
+	this.storagePath = path.join(
+		this.historyService.path,
+		`${config.accessory}.${PowerMeterService.UUID}.json`
+	);
+
+	this.loadState();
+
+	if (this.fsfirstToken == "" && this.fsrefreshtoken == "" || (this.fsfirstToken != this.accessToken || this.fsfirstrefreshtoken != this.refreshToken)) {
+		this.fsfirstToken = this.accessToken;
+		this.fsfirstrefreshtoken = this.refreshToken;
+		this.fstoken = this.accessToken;
+		this.fsrefreshtoken = this.refreshToken;
+		this.saveState();
+	}
+
+};
+
+EnergyMeter.prototype.loadState = function () {
+	let rawFile = '{}';
+	if (fs.existsSync(this.storagePath)) {
+		rawFile = fs.readFileSync(this.storagePath, 'utf8');
+	}
+
+	const stored = JSON.parse(rawFile);
+
+	this.fsfirstToken = stored.fsfirstToken || "";
+	this.fsfirstrefreshtoken = stored.fsfirstrefreshtoken || "";
+	this.fstoken = stored.fstoken || "";
+	this.fsrefreshtoken = stored.fsrefreshtoken || "";
+
+};
+
+
+EnergyMeter.prototype.saveState = function () {
+	fs.writeFileSync(
+		this.storagePath,
+		JSON.stringify({
+			fsfirstToken: this.fsfirstToken,
+			fsfirstrefreshtoken: this.fsfirstrefreshtoken,
+			fstoken: this.fstoken,
+			fsrefreshtoken: this.fsrefreshtoken,
+
+		})
+	);
 }
 
+Date.prototype.addDays = function (days) {
+	var date = new Date(this.valueOf());
+	date.setDate(date.getDate() + days);
+	return date;
+};
+function toDateTime(secs) {
+	var t = new Date(1970, 0, 1); // Epoch
+	t.setSeconds(secs);
+	return t;
+}
 EnergyMeter.prototype.updateState = function () {
+
 	if (this.waiting_response) {
 		this.log('Please select a higher update_interval value. Http command may not finish!');
 		return;
 	}
-	this.waiting_response = true;
+
 	this.last_value = new Promise((resolve, reject) => {
-		var ops = {
-			uri:		this.url,
-			method:		this.http_method,
-			timeout:	this.timeout
-		};
-		if (this.debug_log) { this.log('Requesting energy values from Shelly 3EM(EM) ...'); }
-		if (this.auth) {
-			ops.auth = {
-				user: this.auth.user,
-				pass: this.auth.pass
-			};
+
+		var datenow = new Date();
+
+		if (this.historyService.history.length == 1) {
+
+			var firstdate = new Date(datenow.getFullYear() - 1, datenow.getMonth(), datenow.getDate());
+			var dateconfig = Date.parse(this.configFirstDate);
+
+			var TotalDays = Math.ceil((datenow - dateconfig) / (1000 * 3600 * 24));
+
+
+			if (TotalDays <= 365) {
+				firstdate = dateconfig;
+			}
+		} else {
+
+			var firstdate = new Date(parseInt(this.historyService.history[this.historyService.history.length - 1].time * 1000, 10));
+
+			if (firstdate.getMonth() != datenow.getMonth()) {
+				this.PowerComsuption = 0;
+			}
+			if (firstdate.getDate() == datenow.getDate() && firstdate.getMonth() == datenow.getMonth() && firstdate.getFullYear() == datenow.getFullYear()) {
+				clearInterval(this.timer);
+				this.update_interval = 600000;
+				this.timer = setInterval(this.updateState.bind(this), this.update_interval);
+				this.log("Push Request set to 10min");
+				return;
+			}
+
 		}
-		request(ops, (error, res, body) => {
-			var json = null;
-			if (error) {
-				this.log('Bad http response! (' + ops.uri + '): ' + error.message);
-			}
-			else {
-				try {
-					json = JSON.parse(body);
-					
-					if ((this.use_pf) && (this.use_em==false)) {
-						this.pf0 = parseFloat(json.emeters[0].pf);
-						this.pf1 = parseFloat(json.emeters[1].pf);
-						this.pf2 = parseFloat(json.emeters[2].pf);
-					}
-					else {
-						this.pf0 = 1;
-						this.pf1 = 1;
-						this.pf2 = 1;
-					}
-					
-					if (this.use_em) {
-						
-						if (this.use_em_mode == 0) {
-					   if (this.negative_handling_mode == 0) {
-					   	this.powerConsumption = (parseFloat(json.emeters[0].power)+parseFloat(json.emeters[1].power));
-					    this.totalPowerConsumption = ((parseFloat(json.emeters[0].total)+parseFloat(json.emeters[1].total))/1000);
-					    this.voltage1 = (((parseFloat(json.emeters[0].voltage)+parseFloat(json.emeters[1].voltage))/2));
-				    	this.ampere1 = ((this.powerConsumption/this.voltage1));
-				    	if (this.powerConsumption < 0) { this.powerConsumption = 0 }
-				    	if (this.totalPowerConsumption < 0) { this.totalPowerConsumption = 0 }
-				    	if (this.voltage1 < 0) { this.voltage1 = 0 }
-				    	if (this.ampere1 < 0) { this.ampere1 = 0 }
-					  } else if (this.negative_handling_mode == 1) {
-					    this.powerConsumption = Math.abs(parseFloat(json.emeters[0].power)+parseFloat(json.emeters[1].power));
-					    this.totalPowerConsumption = Math.abs((parseFloat(json.emeters[0].total)+parseFloat(json.emeters[1].total))/1000);
-					    this.voltage1 = Math.abs(((parseFloat(json.emeters[0].voltage)+parseFloat(json.emeters[1].voltage))/2));
-				    	    this.ampere1 = Math.abs((this.powerConsumption/this.voltage1));
-				    	}
-						  	
-					  } else
-					  	{ if (this.use_em_mode == 1) {
-					        if (this.negative_handling_mode == 0) {
-					        this.powerConsumption = (parseFloat(json.emeters[0].power));
-					        this.totalPowerConsumption = (parseFloat(json.emeters[0].total)/1000);
-					        this.voltage1 = (parseFloat(json.emeters[0].voltage));
-				        	this.ampere1 = ((this.powerConsumption/this.voltage1));
-				    	    if (this.powerConsumption < 0) { this.powerConsumption = 0 }
-				    	    if (this.totalPowerConsumption < 0) { this.totalPowerConsumption = 0 }
-				    	    if (this.voltage1 < 0) { this.voltage1 = 0 }
-				    	    if (this.ampere1 < 0) { this.ampere1 = 0 }
-					        } else if (this.negative_handling_mode == 1) {
-					        this.powerConsumption = Math.abs(parseFloat(json.emeters[0].power));
-					        this.totalPowerConsumption = Math.abs(parseFloat(json.emeters[0].total)/1000);
-					        this.voltage1 = Math.abs(parseFloat(json.emeters[0].voltage));
-				        	this.ampere1 = Math.abs((this.powerConsumption/this.voltage1));
-				      }
-						  	
-					    } else 
-					      { if (this.use_em_mode == 2) {
-					        if (this.negative_handling_mode == 0) {
-					        this.powerConsumption = (parseFloat(json.emeters[1].power));
-					        this.totalPowerConsumption = (parseFloat(json.emeters[1].total)/1000);
-					        this.voltage1 = (parseFloat(json.emeters[1].voltage));
-				          this.ampere1 = ((this.powerConsumption/this.voltage1));
-				    	    if (this.powerConsumption < 0) { this.powerConsumption = 0 }
-				    	    if (this.totalPowerConsumption < 0) { this.totalPowerConsumption = 0 }
-				    	    if (this.voltage1 < 0) { this.voltage1 = 0 }
-				    	    if (this.ampere1 < 0) { this.ampere1 = 0 }
-					        } else if (this.negative_handling_mode == 1) {
-					          this.powerConsumption = Math.abs(parseFloat(json.emeters[1].power));
-					          this.totalPowerConsumption = Math.abs(parseFloat(json.emeters[1].total)/1000);
-					          this.voltage1 = Math.abs(parseFloat(json.emeters[1].voltage));
-				          	this.ampere1 = Math.abs((this.powerConsumption/this.voltage1));
-				          	}
-						  	
-					        }
-					        }	
-					  	} 
-						} 
-						else {
-						 			if (this.negative_handling_mode == 0) {
-				           this.powerConsumption = (parseFloat(json.emeters[0].power)+parseFloat(json.emeters[1].power)+parseFloat(json.emeters[2].power));
-				           this.totalPowerConsumption = ((parseFloat(json.emeters[0].total)+parseFloat(json.emeters[1].total)+parseFloat(json.emeters[2].total))/1000);
-			             this.voltage1 = (((parseFloat(json.emeters[0].voltage)+parseFloat(json.emeters[1].voltage)+parseFloat(json.emeters[2].voltage))/3));
-				           this.ampere1 = (((parseFloat(json.emeters[0].current)*this.pf0)
-					          +(parseFloat(json.emeters[1].current)*this.pf1)
-					          +(parseFloat(json.emeters[2].current)*this.pf2)));
-				    	    if (this.powerConsumption < 0) { this.powerConsumption = 0 }
-				    	    if (this.totalPowerConsumption < 0) { this.totalPowerConsumption = 0 }
-				    	    if (this.voltage1 < 0) { this.voltage1 = 0 }
-				    	    if (this.ampere1 < 0) { this.ampere1 = 0 }
-					        } else if (this.negative_handling_mode == 1) {	
-				             this.powerConsumption = Math.abs(parseFloat(json.emeters[0].power)+parseFloat(json.emeters[1].power)+parseFloat(json.emeters[2].power));
-				             this.totalPowerConsumption = Math.abs((parseFloat(json.emeters[0].total)+parseFloat(json.emeters[1].total)+parseFloat(json.emeters[2].total))/1000);
-			               this.voltage1 = Math.abs(((parseFloat(json.emeters[0].voltage)+parseFloat(json.emeters[1].voltage)+parseFloat(json.emeters[2].voltage))/3));
-				             this.ampere1 = Math.abs(((parseFloat(json.emeters[0].current)*this.pf0)
-					            +(parseFloat(json.emeters[1].current)*this.pf1)
-					            +(parseFloat(json.emeters[2].current)*this.pf2)));
-					          }
-							
-						}
-							
-							
-					
-					if (this.debug_log) { this.log('Successful http response. [ voltage: ' + this.voltage1.toFixed(0) + 'V, current: ' + this.ampere1.toFixed(1) + 'A, consumption: ' + this.powerConsumption.toFixed(0) + 'W, total consumption: ' + this.totalPowerConsumption.toFixed(2) + 'kWh ]'); }
-				}
-				catch (parseErr) {
-					this.log('Error processing data: ' + parseErr.message);
-					error = parseErr;
-				}
-			}
-			if (!error) {
-				
-				resolve(this.powerConsumption,this.totalPowerConsumption,this.voltage1,this.ampere1)
-			}
-			else {
-				reject(error);
-			}
-			this.waiting_response = false;
+		var date = new Date(firstdate.valueOf());
+
+
+		date.setDate(date.getDate() + 7);
+		this.log(firstdate);
+		var dateseek = date;
+		this.log(dateseek);
+		if (dateseek > datenow) {
+			var TotalDays = Math.ceil((datenow - firstdate) / (1000 * 3600 * 24));
+
+			date = new Date(firstdate.valueOf());
+			date.setDate(date.getDate() + TotalDays);
+			dateseek = date;
+
+
+		}
+
+		this.log('Query start = ' + new Date(firstdate).toISOString().split("T")[0] + ' End = ' + new Date(dateseek).toISOString().split("T")[0]);
+		clearInterval(this.timer);
+		this.update_interval = 5000;
+		this.timer = setInterval(this.updateState.bind(this), this.update_interval);
+		var error;
+		this.waiting_response = true;
+
+		this.PowerComsuption = 0;
+		var session = new Linky.Session({
+			accessToken: this.fstoken,
+			refreshToken: this.fsrefreshtoken,
+			usagePointId: this.usagePointId,
+			onTokenRefresh: (accessToken, refreshToken) => {
+				console.log("refreshtoken");
+
+
+				this.fstoken = accessToken;
+				this.fsrefreshtoken = refreshToken;
+				this.saveState();
+				// Cette fonction sera appelée si les tokens sont renouvelés
+				// Les tokens précédents ne seront plus valides
+				// Il faudra utiliser ces nouveaux tokens à la prochaine création de session
+				// Si accessToken et refreshToken sont vides, cela signifie que les tokens ne peuvent plus
+				// être utilisés. Il faut alors en récupérer des nouveaux sur conso.vercel.app
+			},
 		});
-	})
-	.then((value_current, value_total, value_voltage1, value_ampere1) => {
-		if (value_current != null) {
-				this.service.getCharacteristic(this._EvePowerConsumption).setValue(value_current, undefined, undefined);
-				//FakeGato
-				this.historyService.addEntry({time: Math.round(new Date().valueOf() / 1000), power: value_current});}
-		if (value_total != null) {
-				this.service.getCharacteristic(this._EveTotalConsumption).setValue(value_total, undefined, undefined);}
-		if (value_voltage1 != null) {
-				this.service.getCharacteristic(this._EveVoltage1).setValue(value_voltage1, undefined, undefined);}
-		if (value_ampere1 != null) {
-				this.service.getCharacteristic(this._EveAmpere1).setValue(value_ampere1, undefined, undefined);}
-		return true;
-	}, (error) => {
-		return error;
+
+		session.getLoadCurve(new Date(firstdate).toISOString().split("T")[0], new Date(dateseek).toISOString().split("T")[0])
+			.catch((errorparsed) => {
+				this.log.error(errorparsed);
+
+				error = errorparsed;
+			})
+			.then((json) => {
+
+
+				if (!error) {
+
+					var hyst = {};
+					try {
+
+						this.historyService.history.forEach(element => {
+
+							if (element.time != undefined) {
+
+								hyst[element.time] = true;
+							}
+						});
+
+					} catch (error) {
+						reject(error);
+						this.waiting_response = false;
+						return;
+					}
+					json.data.forEach(element => {
+						var dt = Date.parse(element.date);
+
+						if (hyst[Math.round(dt / 1000)] == undefined) {
+							this.historyService.addEntry({ time: Math.round(dt / 1000), power: parseInt(element.value) });
+
+						}
+
+
+					});
+					resolve();
+				} else {
+					reject(error);
+
+				}
+			});
+	}).catch(
+		(error) => {
+			this.log.error(error);
+			this.waiting_response = false;
+		}
+
+	).then(() => {
+
+		this.waiting_response = false;
 	});
+
+};
+
+
+EnergyMeter.prototype.setResetEvent = function (callback) {
+	clearInterval(this.timer);
+	this.update_interval = 5000;
+	this.timer = setInterval(this.updateState.bind(this), this.update_interval);
+	this.log("Reset Detected From EVE App");
+	if (this.historyService != null) {
+		this.historyService.cleanPersist();
+
+		this.historyService = new FakeGatoHistoryService("energy", this, { size: 18000, disableTimer: true, disableRepeatLastData: true, storage: 'fs' });
+		this.historyService.history = ["noValue"];
+		this.historyService.cleanPersist();
+		//this.historyService = new FakeGatoHistoryService("energy", this, { size: 18000, disableTimer: true, disableRepeatLastData: true, storage: 'fs' });
+
+	}
+
+};
+
+EnergyMeter.prototype.getResetEvent = function (callback) {
+	callback(null, this.resetvalue);
+
 };
 
 EnergyMeter.prototype.getPowerConsumption = function (callback) {
 	callback(null, this.powerConsumption);
 };
+
 
 EnergyMeter.prototype.getTotalConsumption = function (callback) {
 	callback(null, this.totalPowerConsumption);
