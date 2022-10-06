@@ -1,12 +1,13 @@
 {
   "name": "homebridge-linky-enedis-meter",
-  "version": "1.0.16",
+  "version": "1.0.17",
   "description": "Homebridge plugin pour affichage consommation Linky par Enedis (EVE app seulement).",
   "license": "MIT",
   "keywords": [
     "homebridge-plugin",
     "enedis",
-    "linky","eve"
+    "linky",
+    "eve"
   ],
   "engines": {
     "node": ">=10.0.0",
@@ -21,8 +22,7 @@
   },
   "dependencies": {
     "fakegato-history": "^0.6.3",
-        "request": "^2.5.0",
-        "linky":"^1.5.0"
-       
-  } 
+    "linky": "^1.5.0",
+    "request": "^2.5.0"
+  }
 }

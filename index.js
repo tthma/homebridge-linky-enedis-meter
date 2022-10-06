@@ -37,7 +37,13 @@ function EnergyMeter(log, config) {
 
 	this.name = config["name"];
 	this.displayName = config["name"];
-	this.configFirstDate = config["firstDateRecord"] || new Date().toISOString().split("T")[0];
+
+	try {
+		this.configFirstDate = Date.parse(config["firstDateRecord"]);
+	} catch (error) {
+		this.configFirstDate = new Date().toISOString().split("T")[0];
+	}
+
 	this.update_interval = Number(config["update_interval"] || 10000);
 	this.serial = this.usagePointId;
 	// internal variables
@@ -228,7 +234,7 @@ EnergyMeter.prototype.updateState = function () {
 
 			var firstdate = new Date(datenow.getFullYear() - 1, datenow.getMonth(), datenow.getDate());
 			var dateconfig = Date.parse(this.configFirstDate);
-
+		 
 			var TotalDays = Math.ceil((datenow - dateconfig) / (1000 * 3600 * 24));
 
 
@@ -255,9 +261,9 @@ EnergyMeter.prototype.updateState = function () {
 
 
 		date.setDate(date.getDate() + 7);
-		this.log(firstdate);
+
 		var dateseek = date;
-		this.log(dateseek);
+
 		if (dateseek > datenow) {
 			var TotalDays = Math.ceil((datenow - firstdate) / (1000 * 3600 * 24));
 
@@ -267,6 +273,18 @@ EnergyMeter.prototype.updateState = function () {
 
 
 		}
+		if (dateseek >= datenow) {
+			dateseek = new Date();
+		}
+		if (dateseek == firstdate) {
+			clearInterval(this.timer);
+			this.update_interval = 600000;
+			this.timer = setInterval(this.updateState.bind(this), this.update_interval);
+			this.log("Push Request set to 10min");
+			this.waiting_response = false;
+			return;
+		}
+
 
 		this.log('Query start = ' + new Date(firstdate).toISOString().split("T")[0] + ' End = ' + new Date(dateseek).toISOString().split("T")[0]);
 		clearInterval(this.timer);
@@ -295,6 +313,12 @@ EnergyMeter.prototype.updateState = function () {
 			},
 		});
 
+		// if(dateseek == firstdate){
+
+		// }
+
+
+
 		session.getLoadCurve(new Date(firstdate).toISOString().split("T")[0], new Date(dateseek).toISOString().split("T")[0])
 			.catch((errorparsed) => {
 				this.log.error(errorparsed);
@@ -308,7 +332,6 @@ EnergyMeter.prototype.updateState = function () {
 
 					var hyst = {};
 					try {
-
 						this.historyService.history.forEach(element => {
 
 							if (element.time != undefined) {
@@ -322,6 +345,7 @@ EnergyMeter.prototype.updateState = function () {
 						this.waiting_response = false;
 						return;
 					}
+
 					json.data.forEach(element => {
 						var dt = Date.parse(element.date);
 
@@ -329,7 +353,6 @@ EnergyMeter.prototype.updateState = function () {
 							this.historyService.addEntry({ time: Math.round(dt / 1000), power: parseInt(element.value) });
 
 						}
-
 
 					});
 					resolve();
