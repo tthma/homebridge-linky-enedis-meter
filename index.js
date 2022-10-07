@@ -37,12 +37,15 @@ function EnergyMeter(log, config) {
 
 	this.name = config["name"];
 	this.displayName = config["name"];
-
+	 
 	try {
-		this.configFirstDate = Date.parse(config["firstDateRecord"]);
+		this.configFirstDate =new Date(config["firstDateRecord"]);
+		this.configFirstDate.setHours(0,0,0,0);
 	} catch (error) {
-		this.configFirstDate = new Date().toISOString().split("T")[0];
+		this.configFirstDate =this.getdatenow();
+		this.configFirstDate.setHours(0,0,0,0);
 	}
+	 
 
 	this.update_interval = Number(config["update_interval"] || 10000);
 	this.serial = this.usagePointId;
@@ -228,12 +231,12 @@ EnergyMeter.prototype.updateState = function () {
 
 	this.last_value = new Promise((resolve, reject) => {
 
-		var datenow = new Date();
+		var datenow =this.getdatenow();
 
 		if (this.historyService.history.length == 1) {
 
 			var firstdate = new Date(datenow.getFullYear() - 1, datenow.getMonth(), datenow.getDate());
-			var dateconfig = Date.parse(this.configFirstDate);
+			var dateconfig =  this.configFirstDate;
 		 
 			var TotalDays = Math.ceil((datenow - dateconfig) / (1000 * 3600 * 24));
 
@@ -264,7 +267,7 @@ EnergyMeter.prototype.updateState = function () {
 
 		var dateseek = date;
 
-		if (dateseek > datenow) {
+		if (dateseek.getTime() > datenow.getTime()) {
 			var TotalDays = Math.ceil((datenow - firstdate) / (1000 * 3600 * 24));
 
 			date = new Date(firstdate.valueOf());
@@ -273,10 +276,10 @@ EnergyMeter.prototype.updateState = function () {
 
 
 		}
-		if (dateseek >= datenow) {
-			dateseek = new Date();
+		if (dateseek.getTime() >= datenow.getTime()) {
+			dateseek = this.getdatenow();
 		}
-		if (dateseek == firstdate) {
+		if (dateseek.getTime() === firstdate.getTime()) {
 			clearInterval(this.timer);
 			this.update_interval = 600000;
 			this.timer = setInterval(this.updateState.bind(this), this.update_interval);
@@ -391,6 +394,14 @@ EnergyMeter.prototype.setResetEvent = function (callback) {
 	}
 
 };
+
+EnergyMeter.prototype.getdatenow = function ( ) {
+ var date = new Date();
+ 
+ date.setHours(0,0,0,0);
+return date;
+};
+
 
 EnergyMeter.prototype.getResetEvent = function (callback) {
 	callback(null, this.resetvalue);
