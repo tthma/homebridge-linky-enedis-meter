@@ -1,0 +1,28 @@
+{
+  "name": "homebridge-linky-enedis-meter",
+  "version": "1.0.17",
+  "description": "Homebridge plugin pour affichage consommation Linky par Enedis (EVE app seulement).",
+  "license": "MIT",
+  "keywords": [
+    "homebridge-plugin",
+    "enedis",
+    "linky",
+    "eve"
+  ],
+  "engines": {
+    "node": ">=10.0.0",
+    "homebridge": ">=1.3.1"
+  },
+  "author": {
+    "name": "@tthma"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/tthma/homebridge-linky-enedis-meter.git"
+  },
+  "dependencies": {
+    "fakegato-history": "^0.6.3",
+    "linky": "^1.5.0",
+    "request": "^2.5.0"
+  }
+}

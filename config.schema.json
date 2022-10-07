@@ -1,0 +1,58 @@
+{
+  "pluginAlias": "EnergyMeter",
+  "pluginType": "accessory",
+  "singular": true,
+  "headerDisplay": "Linky Meter Plugin",
+  "footerDisplay": "This accessory will only be supported in the third-party Homekit app EVE.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Name",
+        "type": "string",
+        "default": "Linky Meter",
+        "required": true
+      },
+      "usagePointId": {
+        "title": "Linky ID",
+        "type": "string",
+        "default": "",
+        "required": true
+      },
+      "accessToken": {
+        "title": "accessToken Value",
+        "type": "string",
+        "default": "",
+        "required": true
+      },
+      "refreshToken": {
+        "title": "refreshToken Value",
+        "type": "string",
+        "default": "",
+        "required": true
+      },
+      "firstDateRecord": {
+        "title": "Première date d'enregistrement Enedis ex : 2021-10-31",
+        "type": "string",
+        "format": "date-time",
+        "required": true
+      },
+      "update_interval": {
+        "title": "Update Interval",
+        "type": "integer",
+        "default": 10000,
+        "required": true,
+        "minimum": 1000,
+        "maximum": 60000,
+        "description": "Update Interval should be higher than Request Timeout."
+      }
+    }
+  },
+  "layout": [
+    "usagePointId",
+    "accessToken",
+    "refreshToken",
+    "firstDateRecord",
+    "update_interval"
+  ]
+}
