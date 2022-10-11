@@ -12,6 +12,7 @@ const version = require('./package.json').version;
 var Linky = require('linky');
 const fakegatoStorage = require('fakegato-history/fakegato-storage');
 const consoleerror = require('console');
+
 module.exports = function (homebridge) {
 
 	Service = homebridge.hap.Service;
@@ -28,8 +29,7 @@ module.exports = function (homebridge) {
 
 function EnergyMeter(log, config) {
 
-
-
+	this.EntryAdded = false;
 	this.log = log;
 	this.usagePointId = config["usagePointId"] || "";
 	this.accessToken = config["accessToken"] || "";
@@ -37,21 +37,22 @@ function EnergyMeter(log, config) {
 
 	this.name = config["name"];
 	this.displayName = config["name"];
-	 
-	try {
-		this.configFirstDate =new Date(config["firstDateRecord"]);
-		this.configFirstDate.setHours(0,0,0,0);
-	} catch (error) {
-		this.configFirstDate =this.getdatenow();
-		this.configFirstDate.setHours(0,0,0,0);
-	}
-	 
 
-	this.update_interval = Number(config["update_interval"] || 10000);
+	try {
+		this.configFirstDate = new Date(config["firstDateRecord"]);
+		this.configFirstDate.setHours(0, 0, 0, 0);
+	} catch (error) {
+		this.configFirstDate = this.getdatenow();
+		this.configFirstDate.setHours(0, 0, 0, 0);
+	}
+
+
+	this.update_interval = config["update_interval"] || 60000;
+
 	this.serial = this.usagePointId;
 	// internal variables
 	this.waiting_response = false;
-
+	this.ResetCall = false;
 
 	var EvePowerConsumption = function () {
 		Characteristic.call(this, 'Consumption', 'E863F10D-079E-48FF-8F27-9C2605A29F52');
@@ -132,10 +133,9 @@ function EnergyMeter(log, config) {
 
 	var PowerMeterService = function (displayName, subtype) {
 		Service.call(this, displayName, '00000001-0000-1777-8000-775D67EC4377', subtype);
-		this.addCharacteristic(EvePowerConsumption);
+
 		this.addOptionalCharacteristic(EveTotalConsumption);
-		this.addOptionalCharacteristic(EveVoltage1);
-		this.addOptionalCharacteristic(EveAmpere1);
+
 		this.addOptionalCharacteristic(EveResetHistory);
 	};
 	PowerMeterService.UUID = '00000001-0000-1777-8000-775D67EC4377';
@@ -158,13 +158,19 @@ function EnergyMeter(log, config) {
 
 	// construct service
 	this.service = new PowerMeterService(this.name);
-	this.service.getCharacteristic(this._EvePowerConsumption).on('get', this.getPowerConsumption.bind(this));
+
 	this.service.addCharacteristic(this._EveTotalConsumption).on('get', this.getTotalConsumption.bind(this));
-	this.service.addCharacteristic(this._EveVoltage1).on('get', this.getVoltage1.bind(this));
-	this.service.addCharacteristic(this._EveAmpere1).on('get', this.getAmpere1.bind(this));
+
 	this.service.addCharacteristic(this._EveResetHistory).on('set', this.setResetEvent.bind(this));;
-	// add fakegato
-	this.historyService = new FakeGatoHistoryService("energy", this, { size: 18000, disableTimer: true, disableRepeatLastData: true, storage: 'fs' });
+
+	this.powerConsumption = 0;
+	this.totalPowerConsumption = 0;
+	this.voltage1 = 220;
+	this.ampere1 = 0;
+
+
+
+	this.historyService = new FakeGatoHistoryService("energy", this, { filename: this.serial + ".json", disableRepeatLastData: true, disableTimer: true, storage: 'fs' });
 
 	this.storagePath = path.join(
 		this.historyService.path,
@@ -173,13 +179,34 @@ function EnergyMeter(log, config) {
 
 	this.loadState();
 
-	if (this.fsfirstToken == "" && this.fsrefreshtoken == "" || (this.fsfirstToken != this.accessToken || this.fsfirstrefreshtoken != this.refreshToken)) {
+	if (this.fsfirstToken != this.accessToken || this.fsfirstrefreshtoken != this.refreshToken || this.fstoken == '') {
 		this.fsfirstToken = this.accessToken;
 		this.fsfirstrefreshtoken = this.refreshToken;
 		this.fstoken = this.accessToken;
 		this.fsrefreshtoken = this.refreshToken;
 		this.saveState();
 	}
+
+
+	this.session = new Linky.Session({
+		accessToken: this.fstoken,
+		refreshToken: this.fsrefreshtoken,
+		usagePointId: this.usagePointId,
+		onTokenRefresh: (accessToken, refreshToken) => {
+			console.log("refreshtoken");
+
+
+			this.fstoken = accessToken;
+			this.fsrefreshtoken = refreshToken;
+			this.saveState();
+			// Cette fonction sera appelée si les tokens sont renouvelés
+			// Les tokens précédents ne seront plus valides
+			// Il faudra utiliser ces nouveaux tokens à la prochaine création de session
+			// Si accessToken et refreshToken sont vides, cela signifie que les tokens ne peuvent plus
+			// être utilisés. Il faut alors en récupérer des nouveaux sur conso.vercel.app
+		},
+	});
+
 
 };
 
@@ -195,6 +222,14 @@ EnergyMeter.prototype.loadState = function () {
 	this.fsfirstrefreshtoken = stored.fsfirstrefreshtoken || "";
 	this.fstoken = stored.fstoken || "";
 	this.fsrefreshtoken = stored.fsrefreshtoken || "";
+	this.historyService.currentEntry = stored.uploadEntry || 0;
+
+	try {
+		this.firstdate = new Date(stored.firstdate) || new Date(this.configFirstDate);
+	} catch (error) {
+		this.firstdate = new Date(this.configFirstDate);
+	}
+
 
 };
 
@@ -207,6 +242,8 @@ EnergyMeter.prototype.saveState = function () {
 			fsfirstrefreshtoken: this.fsfirstrefreshtoken,
 			fstoken: this.fstoken,
 			fsrefreshtoken: this.fsrefreshtoken,
+			firstdate: this.firstdate,
+			uploadEntry: this.historyService.currentEntry
 
 		})
 	);
@@ -224,43 +261,116 @@ function toDateTime(secs) {
 }
 EnergyMeter.prototype.updateState = function () {
 
-	if (this.waiting_response) {
-		this.log('Please select a higher update_interval value. Http command may not finish!');
+	if (this.ResetCall) {
+
 		return;
 	}
 
+
+	if (this.waiting_response) {
+		this.log('Please select a higher update_interval value. Querry command may not finish!');
+		return;
+	}
+	this.waiting_response = true;
+
 	this.last_value = new Promise((resolve, reject) => {
 
-		var datenow =this.getdatenow();
+		var datenow = this.getdatenow();
 
-		if (this.historyService.history.length == 1) {
+		if (this.EntryAdded && this.historyService.history.length == 1) {
 
-			var firstdate = new Date(datenow.getFullYear() - 1, datenow.getMonth(), datenow.getDate());
-			var dateconfig =  this.configFirstDate;
-		 
-			var TotalDays = Math.ceil((datenow - dateconfig) / (1000 * 3600 * 24));
+			this.setResetEvent();
+			throw new Error("Error writing history must reset");
+		}
+		if (this.historyService.loaded) {
 
-
-			if (TotalDays <= 365) {
-				firstdate = dateconfig;
+			if (this.historyService.currentEntry == 1) {
+				this.historyService.transfer = true;
+				this.waiting_response = false;
+				resolve();
+				return true;
 			}
+			if (this.historyService.transfer) {
+
+				if (this.historyService.currentEntry >= this.historyService.lastEntry) {
+					this.historyService.transfer = false;
+					this.waiting_response = false;
+					resolve();
+					return true;
+				}
+
+				this.log('Wait pending transfer to Eve App');
+				this.waiting_response = false;
+				resolve();
+				return true;
+			}
+
+			if ((this.historyService.lastEntry - this.historyService.firstEntry) >= (this.historyService.memorySize - 200) && this.historyService.currentEntry < this.historyService.lastEntry) {
+
+				if ((this.historyService.lastEntry - this.historyService.currentEntry) >= (this.historyService.memorySize - 200)) {
+
+					this.log('Persit Memory Full Please push data to Eve App (Refresh) For Prevent lost Data History');
+					this.waiting_response = false;
+					resolve();
+					return true;
+				}
+
+			}
+
+			if (pHomebridge.globalFakeGatoStorage != undefined) {
+
+				if (pHomebridge.globalFakeGatoStorage.writing) {
+					this.waiting_response = false;
+					resolve();
+					return true;
+				}
+			}
+
 		} else {
 
-			var firstdate = new Date(parseInt(this.historyService.history[this.historyService.history.length - 1].time * 1000, 10));
+			this.historyService.load();
+			this.waiting_response = false;
+			resolve();
+			return true;
+		}
+		this.totalPowerConsumption = 0;
+		try {
 
-			if (firstdate.getMonth() != datenow.getMonth()) {
-				this.PowerComsuption = 0;
+
+			var vale = this.historyService.history.filter(felement =>
+				new Date(felement.time * 1000).getUTCMonth() == datenow.getUTCMonth() && new Date(felement.time * 1000).getFullYear() == datenow.getFullYear()
+			);
+			if (vale != undefined) {
+
+				vale.forEach(element => {
+
+					if (Number.isInteger(element.power)) {
+
+						this.totalPowerConsumption = this.totalPowerConsumption + element.power;
+
+					}
+
+				});
+
+				this.totalPowerConsumption = this.totalPowerConsumption / 1000;
+				this.service.getCharacteristic(this._EveTotalConsumption).setValue(this.totalPowerConsumption, undefined, undefined);
+
 			}
-			if (firstdate.getDate() == datenow.getDate() && firstdate.getMonth() == datenow.getMonth() && firstdate.getFullYear() == datenow.getFullYear()) {
-				clearInterval(this.timer);
-				this.update_interval = 600000;
-				this.timer = setInterval(this.updateState.bind(this), this.update_interval);
-				this.log("Push Request set to 10min");
-				return;
-			}
+			vale = undefined;
+
+		} catch (error) {
 
 		}
-		var date = new Date(firstdate.valueOf());
+
+
+		if (this.firstdate.getDate() == datenow.getDate() && this.firstdate.getMonth() == datenow.getMonth() && this.firstdate.getFullYear() == datenow.getFullYear()) {
+
+			this.waiting_response = false;
+			resolve();
+			return true;
+		}
+
+		var date = new Date(this.firstdate.valueOf());
 
 
 		date.setDate(date.getDate() + 7);
@@ -268,139 +378,126 @@ EnergyMeter.prototype.updateState = function () {
 		var dateseek = date;
 
 		if (dateseek.getTime() > datenow.getTime()) {
-			var TotalDays = Math.ceil((datenow - firstdate) / (1000 * 3600 * 24));
-
-			date = new Date(firstdate.valueOf());
+			var TotalDays = Math.ceil((datenow - this.firstdate) / (1000 * 3600 * 24));
+			date = new Date(this.firstdate.valueOf());
 			date.setDate(date.getDate() + TotalDays);
 			dateseek = date;
-
-
 		}
-		if (dateseek.getTime() >= datenow.getTime()) {
+
+		if (dateseek.getTime() > datenow.getTime()) {
 			dateseek = this.getdatenow();
 		}
-		if (dateseek.getTime() === firstdate.getTime()) {
-			clearInterval(this.timer);
-			this.update_interval = 600000;
-			this.timer = setInterval(this.updateState.bind(this), this.update_interval);
-			this.log("Push Request set to 10min");
+
+		if (dateseek.getTime() === this.firstdate.getTime()) {
+
+			this.saveState();
 			this.waiting_response = false;
-			return;
+			resolve();
+			return true;
 		}
 
 
-		this.log('Query start = ' + new Date(firstdate).toISOString().split("T")[0] + ' End = ' + new Date(dateseek).toISOString().split("T")[0]);
-		clearInterval(this.timer);
-		this.update_interval = 5000;
-		this.timer = setInterval(this.updateState.bind(this), this.update_interval);
+		this.log('Query start = ' + this.firstdate.toISOString().split("T")[0] + ' End = ' + dateseek.toISOString().split("T")[0]);
+
 		var error;
-		this.waiting_response = true;
 
 		this.PowerComsuption = 0;
-		var session = new Linky.Session({
-			accessToken: this.fstoken,
-			refreshToken: this.fsrefreshtoken,
-			usagePointId: this.usagePointId,
-			onTokenRefresh: (accessToken, refreshToken) => {
-				console.log("refreshtoken");
 
 
-				this.fstoken = accessToken;
-				this.fsrefreshtoken = refreshToken;
-				this.saveState();
-				// Cette fonction sera appelée si les tokens sont renouvelés
-				// Les tokens précédents ne seront plus valides
-				// Il faudra utiliser ces nouveaux tokens à la prochaine création de session
-				// Si accessToken et refreshToken sont vides, cela signifie que les tokens ne peuvent plus
-				// être utilisés. Il faut alors en récupérer des nouveaux sur conso.vercel.app
-			},
-		});
-
-		// if(dateseek == firstdate){
-
-		// }
-
-
-
-		session.getLoadCurve(new Date(firstdate).toISOString().split("T")[0], new Date(dateseek).toISOString().split("T")[0])
+		this.session.getLoadCurve(new Date(this.firstdate).toISOString().split("T")[0], new Date(dateseek).toISOString().split("T")[0])
 			.catch((errorparsed) => {
 				this.log.error(errorparsed);
 
 				error = errorparsed;
 			})
-			.then((json) => {
+			.then(async (json) => {
 
 
 				if (!error) {
 
-					var hyst = {};
-					try {
-						this.historyService.history.forEach(element => {
 
-							if (element.time != undefined) {
+					var mindate = Date.parse(json.data[0].date);
+					var maxdate = Date.parse(json.data[json.data.length - 1].date);
 
-								hyst[element.time] = true;
+					var preval = undefined;
+					while (mindate <= maxdate) {
+
+						var val = json.data.find(felement => Date.parse(felement.date) == mindate)
+
+						if (val != undefined) {
+							preval = val;
+						}
+						if (preval != undefined) {
+ 
+							var findvalue = this.historyService.history.find(felement => felement.time == Math.round(mindate / 1000));
+							if (findvalue == undefined) {
+								this.historyService.addEntry({ time: Math.round(mindate / 1000), power: (preval.value) });
+								this.EntryAdded = true;
 							}
-						});
-
-					} catch (error) {
-						reject(error);
-						this.waiting_response = false;
-						return;
-					}
-
-					json.data.forEach(element => {
-						var dt = Date.parse(element.date);
-
-						if (hyst[Math.round(dt / 1000)] == undefined) {
-							this.historyService.addEntry({ time: Math.round(dt / 1000), power: parseInt(element.value) });
-
 						}
 
-					});
+						mindate = mindate + 600000;
+					}
+					if (pHomebridge.globalFakeGatoStorage != undefined) {
+
+
+						while (pHomebridge.globalFakeGatoStorage.writing) {
+							await sleep(1000);
+						}
+					}
+					this.firstdate = dateseek;
+
+					this.saveState();
 					resolve();
 				} else {
 					reject(error);
 
 				}
+				json = undefined;
+				return true;
 			});
 	}).catch(
 		(error) => {
 			this.log.error(error);
-			this.waiting_response = false;
+
 		}
 
 	).then(() => {
 
 		this.waiting_response = false;
-	});
+		return true;
+	}).finally(() => {
+		this.last_value = undefined;
+	})
 
 };
 
+async function sleep(msec) {
+	return new Promise(resolve => setTimeout(resolve, msec));
+}
 
 EnergyMeter.prototype.setResetEvent = function (callback) {
-	clearInterval(this.timer);
-	this.update_interval = 5000;
-	this.timer = setInterval(this.updateState.bind(this), this.update_interval);
-	this.log("Reset Detected From EVE App");
+	this.firstdate = this.configFirstDate;
+	this.EntryAdded = false;
+	this.historyService.currentEntry = 0;
+	this.saveState();
+
+	this.log("Reset Detected From EVE App must Restart HomeBridge");
 	if (this.historyService != null) {
 		this.historyService.cleanPersist();
 
-		this.historyService = new FakeGatoHistoryService("energy", this, { size: 18000, disableTimer: true, disableRepeatLastData: true, storage: 'fs' });
-		this.historyService.history = ["noValue"];
-		this.historyService.cleanPersist();
-		//this.historyService = new FakeGatoHistoryService("energy", this, { size: 18000, disableTimer: true, disableRepeatLastData: true, storage: 'fs' });
-
 	}
+	this.ResetCall = true;
 
 };
 
-EnergyMeter.prototype.getdatenow = function ( ) {
- var date = new Date();
- 
- date.setHours(0,0,0,0);
-return date;
+EnergyMeter.prototype.getdatenow = function () {
+	var date = new Date();
+
+	date.setHours(12, 0, 0, 0);
+	return date;
 };
+
 
 
 EnergyMeter.prototype.getResetEvent = function (callback) {

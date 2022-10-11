@@ -40,10 +40,8 @@
       "update_interval": {
         "title": "Update Interval",
         "type": "integer",
-        "default": 10000,
-        "required": true,
-        "minimum": 1000,
-        "maximum": 60000,
+        "default": 60000,
+        "required": true ,
         "description": "Update Interval should be higher than Request Timeout."
       }
     }
