@@ -199,7 +199,7 @@ function EnergyMeter(log, config) {
 			this.fstoken = accessToken;
 			this.fsrefreshtoken = refreshToken;
 			this.saveState();
-		 
+
 		},
 	});
 
@@ -207,26 +207,46 @@ function EnergyMeter(log, config) {
 };
 
 EnergyMeter.prototype.loadState = function () {
-	let rawFile = '{}';
-	if (fs.existsSync(this.storagePath)) {
-		rawFile = fs.readFileSync(this.storagePath, 'utf8');
-	}
-
-	const stored = JSON.parse(rawFile);
-
-	this.fsfirstToken = stored.fsfirstToken || "";
-	this.fsfirstrefreshtoken = stored.fsfirstrefreshtoken || "";
-	this.fstoken = stored.fstoken || "";
-	this.fsrefreshtoken = stored.fsrefreshtoken || "";
-	this.historyService.currentEntry = stored.uploadEntry || 0;
-	this.totalPowerConsumption = stored.total || 0;
 	try {
-		this.firstdate = new Date(stored.firstdate) || new Date(this.configFirstDate);
+		let rawFile = '{}';
+		if (fs.existsSync(this.storagePath)) {
+			rawFile = fs.readFileSync(this.storagePath, 'utf8');
+		}
+
+		const stored = JSON.parse(rawFile);
+
+		this.fsfirstToken = stored.fsfirstToken || "";
+		this.fsfirstrefreshtoken = stored.fsfirstrefreshtoken || "";
+		this.fstoken = stored.fstoken || "";
+		this.fsrefreshtoken = stored.fsrefreshtoken || "";
+		this.historyService.currentEntry = stored.uploadEntry || 0;
+		this.totalPowerConsumption = stored.total || 0;
+		try {
+			if (stored.firstdate == undefined) {
+				this.firstdate = new Date(this.configFirstDate);
+			} else {
+				this.firstdate = new Date(stored.firstdate);
+			}
+		} catch (error) {
+			this.firstdate = this.getdatenow();
+			this.firstdate.setHours(0, 0, 0, 0);
+		}
+
 	} catch (error) {
-		this.firstdate = new Date(this.configFirstDate);
+		fs.writeFileSync(
+			this.storagePath,
+			JSON.stringify({
+				fsfirstToken: this.fsfirstToken,
+				fsfirstrefreshtoken: this.fsfirstrefreshtoken,
+				fstoken: this.fstoken,
+				fsrefreshtoken: this.fsrefreshtoken,
+				firstdate: this.firstdate,
+				uploadEntry: this.historyService.currentEntry,
+				total: this.totalPowerConsumption
+
+			})
+		);
 	}
-
-
 };
 
 
@@ -286,8 +306,9 @@ EnergyMeter.prototype.updateState = function () {
 			this.setResetEvent();
 			throw new Error("Error writing history must reset");
 		}
+
 		if (this.historyService.loaded) {
- 
+
 			if (pHomebridge.globalFakeGatoStorage != undefined) {
 
 				if (pHomebridge.globalFakeGatoStorage.writing) {
@@ -301,9 +322,17 @@ EnergyMeter.prototype.updateState = function () {
 
 				if (this.historyService.currentEntry >= this.historyService.lastEntry) {
 					this.historyService.transfer = false;
-					this.waiting_response = false;
+					this.waiting_response = true;
+					this.EntryAdded = false;
 					this.log('Transfer to Eve App Finish');
+					this.historyService.currentEntry = 0;
+					this.historyService.cleanPersist();
+					this.historyService.history = ["noValue"];
+					this.historyService.load((arg, boolvalue) => {
+
+					});
 					this.saveState();
+					this.waiting_response = false;
 					resolve();
 					return true;
 				}
@@ -335,8 +364,9 @@ EnergyMeter.prototype.updateState = function () {
 			resolve();
 			return true;
 		}
+
 		this.service.getCharacteristic(this._EveTotalConsumption).setValue(this.totalPowerConsumption, undefined, undefined);
-  
+
 		if (this.firstdate.getDate() == datenow.getDate() && this.firstdate.getMonth() == datenow.getMonth() && this.firstdate.getFullYear() == datenow.getFullYear()) {
 
 			this.waiting_response = false;
@@ -360,6 +390,7 @@ EnergyMeter.prototype.updateState = function () {
 
 		if (dateseek.getTime() > datenow.getTime()) {
 			dateseek = this.getdatenow();
+			dateseek.setHours(0, 0, 0, 0);
 		}
 
 		if (dateseek.getTime() === this.firstdate.getTime()) {
@@ -370,7 +401,7 @@ EnergyMeter.prototype.updateState = function () {
 			return true;
 		}
 
-		if(this.firstdate.getMonth()< dateseek.getMonth()){
+		if (this.firstdate.getMonth() < dateseek.getMonth()) {
 			this.totalPowerConsumption = 0;
 		}
 
@@ -392,10 +423,10 @@ EnergyMeter.prototype.updateState = function () {
 
 				if (!error) {
 
-					
+
 					var mindate = Date.parse(json.data[0].date);
 					var maxdate = Date.parse(json.data[json.data.length - 1].date);
-                
+
 					var preval = undefined;
 					while (mindate <= maxdate) {
 
@@ -410,10 +441,10 @@ EnergyMeter.prototype.updateState = function () {
 								if (val != undefined) {
 									if (new Date(val.date).getMonth() == datenow.getMonth() && new Date(val.date).getFullYear() == datenow.getFullYear()) {
 										if (Number.isInteger(val.value)) {
-											this.totalPowerConsumption = this.totalPowerConsumption + ((val.value / 1000)/2);
+											this.totalPowerConsumption = this.totalPowerConsumption + ((val.value / 1000) / 2);
 										}
-									} 
-								} 
+									}
+								}
 
 								this.historyService.addEntry({ time: Math.round(mindate / 1000), power: (preval.value) });
 								this.EntryAdded = true;
@@ -456,10 +487,10 @@ async function sleep(msec) {
 }
 function getHoursDiff(startDate, endDate) {
 	const msInHour = 1000 * 60 * 60;
-  
+
 	return Math.round(Math.abs(endDate - startDate) / msInHour);
-  }
-  
+}
+
 EnergyMeter.prototype.setResetEvent = function (callback) {
 	this.firstdate = this.configFirstDate;
 	this.EntryAdded = false;
