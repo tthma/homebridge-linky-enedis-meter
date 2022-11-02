@@ -198,7 +198,12 @@ function EnergyMeter(log, config) {
 
 			this.fstoken = accessToken;
 			this.fsrefreshtoken = refreshToken;
-			this.saveState();
+			if (accessToken === "" || refreshToken === "" ) {
+				this.log('Error Refreshing Token please renew it !');
+			}else{
+				this.saveState();
+			}
+			
 
 		},
 	});
@@ -225,7 +230,7 @@ EnergyMeter.prototype.loadState = function () {
 			if (stored.firstdate == undefined) {
 				this.firstdate = new Date(this.configFirstDate);
 			} else {
-				this.firstdate = new Date(stored.firstdate);
+				this.firstdate = new Date(stored.firstdate) ;
 			}
 		} catch (error) {
 			this.firstdate = this.getdatenow();
@@ -251,6 +256,12 @@ EnergyMeter.prototype.loadState = function () {
 
 
 EnergyMeter.prototype.saveState = function () {
+
+if(this.firstdate != undefined){
+	this.firstdate.setHours(0, 0, 0, 0);
+
+}
+
 	fs.writeFileSync(
 		this.storagePath,
 		JSON.stringify({
@@ -404,7 +415,9 @@ EnergyMeter.prototype.updateState = function () {
 		if (this.firstdate.getMonth() < dateseek.getMonth()) {
 			this.totalPowerConsumption = 0;
 		}
-
+	 
+		this.firstdate.setHours(0,-this.firstdate.getTimezoneOffset(),0,0);
+		dateseek.setHours(0,-dateseek.getTimezoneOffset(),0,0);
 		this.log('Query start = ' + this.firstdate.toISOString().split("T")[0] + ' End = ' + dateseek.toISOString().split("T")[0]);
 
 		var error;
@@ -454,11 +467,14 @@ EnergyMeter.prototype.updateState = function () {
 
 						mindate = mindate + 600000;
 					}
+					this.log('Query ' + this.firstdate.toISOString().split("T")[0] + '/' + dateseek.toISOString().split("T")[0]+' Finish');
 
 					this.firstdate = dateseek;
 
 					this.saveState();
+					
 					resolve();
+				
 				} else {
 					reject(error);
 
