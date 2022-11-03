@@ -231,6 +231,7 @@ EnergyMeter.prototype.loadState = function () {
 				this.firstdate = new Date(this.configFirstDate);
 			} else {
 				this.firstdate = new Date(stored.firstdate) ;
+				this.firstdate.setHours(0,-this.firstdate.getTimezoneOffset(),0,0);
 			}
 		} catch (error) {
 			this.firstdate = this.getdatenow();
