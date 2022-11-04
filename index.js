@@ -302,6 +302,11 @@ EnergyMeter.prototype.updateState = function () {
 		return;
 	}
 
+	//Check if hours is under 05:00 for prevent 404 No Data Error
+	//or Error: Invalid request: The end date parameter must be earlier than the current date. 
+	if(new Date().getHours() <=5){
+		return;
+	}
 
 	if (this.waiting_response) {
 		this.log('Please select a higher update_interval value. Querry command may not finish!');
@@ -419,6 +424,11 @@ EnergyMeter.prototype.updateState = function () {
 	 
 		this.firstdate.setHours(0,-this.firstdate.getTimezoneOffset(),0,0);
 		dateseek.setHours(0,-dateseek.getTimezoneOffset(),0,0);
+
+
+
+
+
 		this.log('Query start = ' + this.firstdate.toISOString().split("T")[0] + ' End = ' + dateseek.toISOString().split("T")[0]);
 
 		var error;
@@ -526,7 +536,7 @@ EnergyMeter.prototype.setResetEvent = function (callback) {
 
 EnergyMeter.prototype.getdatenow = function () {
 	var date = new Date();
-
+	date.getHours( );
 	date.setHours(12, 0, 0, 0);
 	return date;
 };
