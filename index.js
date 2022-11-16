@@ -40,6 +40,10 @@ function EnergyMeter(log, config) {
 
 	try {
 		this.configFirstDate = new Date(config["firstDateRecord"]);
+		if(!this.isValidDate(this.configFirstDate)){
+			this.log('Error Reading Config Date');
+			throw "Error";
+		}
 		this.configFirstDate.setHours(0, 0, 0, 0);
 	} catch (error) {
 		this.configFirstDate = this.getdatenow();
@@ -48,7 +52,7 @@ function EnergyMeter(log, config) {
 
 
 	this.update_interval = config["update_interval"] || 60000;
-
+	 
 	this.serial = this.usagePointId;
 	// internal variables
 	this.waiting_response = false;
@@ -198,18 +202,23 @@ function EnergyMeter(log, config) {
 
 			this.fstoken = accessToken;
 			this.fsrefreshtoken = refreshToken;
-			if (accessToken === "" || refreshToken === "" ) {
+			if (accessToken === "" || refreshToken === "") {
 				this.log('Error Refreshing Token please renew it !');
-			}else{
+			} else {
 				this.saveState();
 			}
-			
+
 
 		},
 	});
 
 
 };
+
+
+EnergyMeter.prototype.isValidDate= function(d) {
+	return d instanceof Date && !isNaN(d);
+  }
 
 EnergyMeter.prototype.loadState = function () {
 	try {
@@ -230,8 +239,8 @@ EnergyMeter.prototype.loadState = function () {
 			if (stored.firstdate == undefined) {
 				this.firstdate = new Date(this.configFirstDate);
 			} else {
-				this.firstdate = new Date(stored.firstdate) ;
-				this.firstdate.setHours(0,-this.firstdate.getTimezoneOffset(),0,0);
+				this.firstdate = new Date(stored.firstdate);
+				this.firstdate.setHours(0, -this.firstdate.getTimezoneOffset(), 0, 0);
 			}
 		} catch (error) {
 			this.firstdate = this.getdatenow();
@@ -258,10 +267,10 @@ EnergyMeter.prototype.loadState = function () {
 
 EnergyMeter.prototype.saveState = function () {
 
-if(this.firstdate != undefined){
-	this.firstdate.setHours(0, 0, 0, 0);
+	if (this.firstdate != undefined) {
+		this.firstdate.setHours(0, 0, 0, 0);
 
-}
+	}
 
 	fs.writeFileSync(
 		this.storagePath,
@@ -304,7 +313,7 @@ EnergyMeter.prototype.updateState = function () {
 
 	//Check if hours is under 05:00 for prevent 404 No Data Error
 	//or Error: Invalid request: The end date parameter must be earlier than the current date. 
-	if(new Date().getHours() <=5){
+	if (new Date().getHours() <= 5) {
 		return;
 	}
 
@@ -421,13 +430,9 @@ EnergyMeter.prototype.updateState = function () {
 		if (this.firstdate.getMonth() < dateseek.getMonth()) {
 			this.totalPowerConsumption = 0;
 		}
-	 
-		this.firstdate.setHours(0,-this.firstdate.getTimezoneOffset(),0,0);
-		dateseek.setHours(0,-dateseek.getTimezoneOffset(),0,0);
 
-
-
-
+		this.firstdate.setHours(0, -this.firstdate.getTimezoneOffset(), 0, 0);
+		dateseek.setHours(0, -dateseek.getTimezoneOffset(), 0, 0);
 
 		this.log('Query start = ' + this.firstdate.toISOString().split("T")[0] + ' End = ' + dateseek.toISOString().split("T")[0]);
 
@@ -459,7 +464,21 @@ EnergyMeter.prototype.updateState = function () {
 						if (val != undefined) { preval = val; }
 						if (preval != undefined) {
 
-							var findvalue = this.historyService.history.find(felement => felement.time == Math.round(mindate / 1000));
+							var findvalue = this.historyService.history.find(
+								function (felement) {
+
+									if (felement != undefined && felement != null) {
+
+										if (felement.time != undefined && felement.time != null) {
+											return felement.time == Math.round(mindate / 1000);
+										}
+									}
+									return false;
+
+								})
+
+
+
 							if (findvalue == undefined) {
 
 								if (val != undefined) {
@@ -478,14 +497,14 @@ EnergyMeter.prototype.updateState = function () {
 
 						mindate = mindate + 600000;
 					}
-					this.log('Query ' + this.firstdate.toISOString().split("T")[0] + '/' + dateseek.toISOString().split("T")[0]+' Finish');
+					this.log('Query ' + this.firstdate.toISOString().split("T")[0] + '/' + dateseek.toISOString().split("T")[0] + ' Finish');
 
 					this.firstdate = dateseek;
 
 					this.saveState();
-					
+
 					resolve();
-				
+
 				} else {
 					reject(error);
 
@@ -536,7 +555,7 @@ EnergyMeter.prototype.setResetEvent = function (callback) {
 
 EnergyMeter.prototype.getdatenow = function () {
 	var date = new Date();
-	date.getHours( );
+	date.getHours();
 	date.setHours(12, 0, 0, 0);
 	return date;
 };
