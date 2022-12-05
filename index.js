@@ -547,7 +547,7 @@ EnergyMeter.prototype.setResetEvent = function (callback) {
 	this.log("Reset Detected From EVE App must Restart HomeBridge");
 	if (this.historyService != null) {
 		this.historyService.cleanPersist();
-		fs.unlinkSync(path.join(this.historyService.path, this.historyService.filename));
+		fs.unlinkSync(this.storagePath);
 	}
 	this.ResetCall = true;
 
