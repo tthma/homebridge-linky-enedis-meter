@@ -323,7 +323,7 @@ EnergyMeter.prototype.updateState = function () {
 	}
 	this.waiting_response = true;
 
-	this.last_value = new Promise((resolve, reject) => {
+	this.last_value = new Promise(async (resolve, reject) => {
 
 		var datenow = this.getdatenow();
 
@@ -440,85 +440,71 @@ EnergyMeter.prototype.updateState = function () {
 
 		this.PowerComsuption = 0;
 
+		try {
+			const jsonResult = await this.session.getLoadCurve(new Date(this.firstdate).toISOString().split("T")[0], new Date(dateseek).toISOString().split("T")[0])
+		
+			var mindate = Date.parse(jsonResult.data[0].date);
+			var maxdate = Date.parse(jsonResult.data[jsonResult.data.length - 1].date);
 
-		this.session.getLoadCurve(new Date(this.firstdate).toISOString().split("T")[0], new Date(dateseek).toISOString().split("T")[0])
-			.catch((errorparsed) => {
-				this.log.error(errorparsed);
+			var preval = undefined;
+			while (mindate <= maxdate) {
 
-				error = errorparsed;
-			})
-			.then(async (json) => {
+				var val = jsonResult.data.find(felement => Date.parse(felement.date) == mindate)
 
+				if (val != undefined) { preval = val; }
+				if (preval != undefined) {
 
-				if (!error) {
+					var findvalue = this.historyService.history.find(
+						function (felement) {
 
+							if (felement != undefined && felement != null) {
 
-					var mindate = Date.parse(json.data[0].date);
-					var maxdate = Date.parse(json.data[json.data.length - 1].date);
-
-					var preval = undefined;
-					while (mindate <= maxdate) {
-
-						var val = json.data.find(felement => Date.parse(felement.date) == mindate)
-
-						if (val != undefined) { preval = val; }
-						if (preval != undefined) {
-
-							var findvalue = this.historyService.history.find(
-								function (felement) {
-
-									if (felement != undefined && felement != null) {
-
-										if (felement.time != undefined && felement.time != null) {
-											return felement.time == Math.round(mindate / 1000);
-										}
-									}
-									return false;
-
-								})
-
-
-
-							if (findvalue == undefined) {
-
-								if (val != undefined) {
-									if (new Date(val.date).getMonth() == datenow.getMonth() && new Date(val.date).getFullYear() == datenow.getFullYear()) {
-										if (Number.isInteger(val.value)) {
-											this.totalPowerConsumption = this.totalPowerConsumption + ((val.value / 1000) / 2);
-										}
-									}
+								if (felement.time != undefined && felement.time != null) {
+									return felement.time == Math.round(mindate / 1000);
 								}
+							}
+							return false;
 
-								this.historyService.addEntry({ time: Math.round(mindate / 1000), power: (preval.value) });
-								this.EntryAdded = true;
+						})
 
+
+
+					if (findvalue == undefined) {
+
+						if (val != undefined) {
+							if (new Date(val.date).getMonth() == datenow.getMonth() && new Date(val.date).getFullYear() == datenow.getFullYear()) {
+								if (Number.isInteger(val.value)) {
+									this.totalPowerConsumption = this.totalPowerConsumption + ((val.value / 1000) / 2);
+								}
 							}
 						}
 
-						mindate = mindate + 600000;
+						this.historyService.addEntry({ time: Math.round(mindate / 1000), power: (preval.value) });
+						this.EntryAdded = true;
+
 					}
-					this.log('Query ' + this.firstdate.toISOString().split("T")[0] + '/' + dateseek.toISOString().split("T")[0] + ' Finish');
-
-					this.firstdate = dateseek;
-
-					this.saveState();
-
-					resolve();
-
-				} else {
-					reject(error);
-
 				}
-				json = undefined;
-				return true;
-			});
-	}).catch(
-		(error) => {
-			this.log.error(error);
 
+				mindate = mindate + 600000;
+			}
+			this.log('Query ' + this.firstdate.toISOString().split("T")[0] + '/' + dateseek.toISOString().split("T")[0] + ' Finish');
+
+			this.firstdate = dateseek;
+
+			this.saveState();
+
+			resolve();
+
+			jsonResult = undefined;
+			return true;
+		} catch (error) {
+			reject(error)
+			return false
 		}
-
-	).then(() => {
+	}).catch((error) => {
+		this.log.debug(error)
+		this.log.error(error.message);
+	}).then(() => {
 		this.service.getCharacteristic(this._EveTotalConsumption).setValue(this.totalPowerConsumption, undefined, undefined);
 		this.waiting_response = false;
 		return true;
