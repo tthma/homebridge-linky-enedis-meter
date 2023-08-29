@@ -435,13 +435,13 @@ EnergyMeter.prototype.updateState = function () {
 				if (!error) {
 
 
-					var mindate = Date.parse(json.data[0].date);
-					var maxdate = Date.parse(json.data[json.data.length - 1].date);
+					var mindate = Date.parse(json.interval_reading[0].date);
+					var maxdate = Date.parse(json.interval_reading[json.interval_reading.length - 1].date);
 
 					var preval = undefined;
 					while (mindate <= maxdate) {
 
-						var val = json.data.find(felement => Date.parse(felement.date) == mindate)
+						var val = json.interval_reading.find(felement => Date.parse(felement.date) == mindate)
 
 						if (val != undefined) { preval = val; }
 						if (preval != undefined) {
