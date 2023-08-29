@@ -18,7 +18,11 @@
 
 * Change method connexion for new Api Enedis.
  
+## 1.0.6 (2023-08-29)
 
+### Changes
+
+* Change Value change variable.
 
 
  
