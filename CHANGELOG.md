@@ -12,7 +12,12 @@
 
 * fix Error in Reset thanks to @Hydrog3n for fix this.
  
+## 1.0.5 (2023-08-29)
 
+### Changes
+
+* Change method connexion for new Api Enedis.
+ 
 
 
 

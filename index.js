@@ -1,17 +1,22 @@
 
+ 
+ 
 
 
-var inherits = require('util').inherits;
+var inherits = require ('util').inherits;
 var Service, Characteristic, pHomebridge;
-var request = require('request');
-var fs = require('fs');
-var path = require('path');
+var request = require ('request');
+var fs = require ('fs');
+var path = require ('path');
 var FakeGatoHistoryService = require('fakegato-history');
-const { fail } = require('assert');
-const version = require('./package.json').version;
-var Linky = require('linky');
-const fakegatoStorage = require('fakegato-history/fakegato-storage');
-const consoleerror = require('console');
+const { fail } = require ('assert');
+const version = require ('./package.json').version;
+//const { Session } = require('linky');
+ 
+ 
+const fakegatoStorage = require ('fakegato-history/fakegato-storage');
+const consoleerror = require ('console');
+ 
 
 module.exports = function (homebridge) {
 
@@ -22,18 +27,19 @@ module.exports = function (homebridge) {
 
 	pHomebridge = homebridge;
 	hap = homebridge.hap;
-	FakeGatoHistoryService = require('fakegato-history')(homebridge);
+	FakeGatoHistoryService = require ('fakegato-history')(homebridge);
 	homebridge.registerAccessory("homebridge-linky-enedis-meter", "EnergyMeter", EnergyMeter);
 
 }
 
 function EnergyMeter(log, config) {
 
+	this.session=	null;
 	this.EntryAdded = false;
 	this.log = log;
 	this.usagePointId = config["usagePointId"] || "";
 	this.accessToken = config["accessToken"] || "";
-	this.refreshToken = config["refreshToken"] || "";
+ 
 
 	this.name = config["name"];
 	this.displayName = config["name"];
@@ -183,38 +189,23 @@ function EnergyMeter(log, config) {
 
 	this.loadState();
 
-	if (this.fsfirstToken != this.accessToken || this.fsfirstrefreshtoken != this.refreshToken || this.fstoken == '') {
-		this.fsfirstToken = this.accessToken;
-		this.fsfirstrefreshtoken = this.refreshToken;
-		this.fstoken = this.accessToken;
-		this.fsrefreshtoken = this.refreshToken;
-		this.saveState();
+	if (this.fstoken != this.accessToken  ) {
+		 		this.fstoken = this.accessToken;
+		 		this.saveState();
 	}
 
 
-	this.session = new Linky.Session({
-		accessToken: this.fstoken,
-		refreshToken: this.fsrefreshtoken,
-		usagePointId: this.usagePointId,
-		onTokenRefresh: (accessToken, refreshToken) => {
-			console.log("refreshtoken");
-
-
-			this.fstoken = accessToken;
-			this.fsrefreshtoken = refreshToken;
-			if (accessToken === "" || refreshToken === "") {
-				this.log('Error Refreshing Token please renew it !');
-			} else {
-				this.saveState();
-			}
-
-
-		},
-	});
-
+	 
+ 
+import("linky")
+.then(ns => {  
+this.session = 	new ns.Session(this.fstoken,this.usagePointId);
+})
+.catch(error => {
+    	this.log.error(error);
+});	
 
 };
-
 
 EnergyMeter.prototype.isValidDate= function(d) {
 	return d instanceof Date && !isNaN(d);
@@ -229,11 +220,8 @@ EnergyMeter.prototype.loadState = function () {
 
 		const stored = JSON.parse(rawFile);
 
-		this.fsfirstToken = stored.fsfirstToken || "";
-		this.fsfirstrefreshtoken = stored.fsfirstrefreshtoken || "";
-		this.fstoken = stored.fstoken || "";
-		this.fsrefreshtoken = stored.fsrefreshtoken || "";
-		this.historyService.currentEntry = stored.uploadEntry || 0;
+				this.fstoken = stored.fstoken || "";
+				this.historyService.currentEntry = stored.uploadEntry || 0;
 		this.totalPowerConsumption = stored.total || 0;
 		try {
 			if (stored.firstdate == undefined) {
@@ -251,11 +239,8 @@ EnergyMeter.prototype.loadState = function () {
 		fs.writeFileSync(
 			this.storagePath,
 			JSON.stringify({
-				fsfirstToken: this.fsfirstToken,
-				fsfirstrefreshtoken: this.fsfirstrefreshtoken,
-				fstoken: this.fstoken,
-				fsrefreshtoken: this.fsrefreshtoken,
-				firstdate: this.firstdate,
+				 				fstoken: this.fstoken,
+							firstdate: this.firstdate,
 				uploadEntry: this.historyService.currentEntry,
 				total: this.totalPowerConsumption
 
@@ -275,11 +260,8 @@ EnergyMeter.prototype.saveState = function () {
 	fs.writeFileSync(
 		this.storagePath,
 		JSON.stringify({
-			fsfirstToken: this.fsfirstToken,
-			fsfirstrefreshtoken: this.fsfirstrefreshtoken,
-			fstoken: this.fstoken,
-			fsrefreshtoken: this.fsrefreshtoken,
-			firstdate: this.firstdate,
+			 			fstoken: this.fstoken,
+			 			firstdate: this.firstdate,
 			uploadEntry: this.historyService.currentEntry,
 			total: this.totalPowerConsumption
 
