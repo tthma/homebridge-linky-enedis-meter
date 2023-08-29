@@ -14,7 +14,6 @@ Configuration du plugin :
         {
            "name": ce que vous voulez,
             "firstDateRecord": date du premier enregistrement par enedis (si ca dépasse 1 an le plugin prendra la date du jours moin 1 an),
-            "refreshToken": suivre les instruction sur (https://github.com/bokub/linky) pour créer des tokens,
             "usagePointId": numéro du compteur linky,
             "accessToken":  suivre les instruction sur (https://github.com/bokub/linky) pour créer des tokens,
             "accessory": "EnergyMeter"        
