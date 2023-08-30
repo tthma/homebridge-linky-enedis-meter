@@ -1,22 +1,22 @@
 
- 
- 
 
 
-var inherits = require ('util').inherits;
+
+
+var inherits = require('util').inherits;
 var Service, Characteristic, pHomebridge;
-var request = require ('request');
-var fs = require ('fs');
-var path = require ('path');
+var request = require('request');
+var fs = require('fs');
+var path = require('path');
 var FakeGatoHistoryService = require('fakegato-history');
-const { fail } = require ('assert');
-const version = require ('./package.json').version;
+const { fail } = require('assert');
+const version = require('./package.json').version;
 //const { Session } = require('linky');
- 
- 
-const fakegatoStorage = require ('fakegato-history/fakegato-storage');
-const consoleerror = require ('console');
- 
+
+
+const fakegatoStorage = require('fakegato-history/fakegato-storage');
+const consoleerror = require('console');
+
 
 module.exports = function (homebridge) {
 
@@ -27,38 +27,39 @@ module.exports = function (homebridge) {
 
 	pHomebridge = homebridge;
 	hap = homebridge.hap;
-	FakeGatoHistoryService = require ('fakegato-history')(homebridge);
+	FakeGatoHistoryService = require('fakegato-history')(homebridge);
 	homebridge.registerAccessory("homebridge-linky-enedis-meter", "EnergyMeter", EnergyMeter);
 
 }
 
 function EnergyMeter(log, config) {
 
-	this.session=	null;
+	this.session = null;
 	this.EntryAdded = false;
 	this.log = log;
 	this.usagePointId = config["usagePointId"] || "";
 	this.accessToken = config["accessToken"] || "";
- 
+
 
 	this.name = config["name"];
 	this.displayName = config["name"];
 
 	try {
 		this.configFirstDate = new Date(config["firstDateRecord"]);
-		if(!this.isValidDate(this.configFirstDate)){
+		if (!this.isValidDate(this.configFirstDate)) {
 			this.log('Error Reading Config Date');
 			throw "Error";
 		}
 		this.configFirstDate.setHours(0, 0, 0, 0);
 	} catch (error) {
+		this.log('Error Reading Config Date Keep DateNow');
 		this.configFirstDate = this.getdatenow();
 		this.configFirstDate.setHours(0, 0, 0, 0);
 	}
 
 
 	this.update_interval = config["update_interval"] || 60000;
-	 
+
 	this.serial = this.usagePointId;
 	// internal variables
 	this.waiting_response = false;
@@ -181,7 +182,7 @@ function EnergyMeter(log, config) {
 
 
 	this.historyService = new FakeGatoHistoryService("energy", this, { filename: this.serial + ".json", disableRepeatLastData: true, disableTimer: true, storage: 'fs' });
-
+	//this.historyService.load();
 	this.storagePath = path.join(
 		this.historyService.path,
 		`${config.accessory}.${PowerMeterService.UUID}.json`
@@ -189,27 +190,29 @@ function EnergyMeter(log, config) {
 
 	this.loadState();
 
-	if (this.fstoken != this.accessToken  ) {
-		 		this.fstoken = this.accessToken;
-		 		this.saveState();
+	if (this.fstoken != this.accessToken) {
+		this.fstoken = this.accessToken;
+
+		this.saveState();
 	}
 
 
-	 
- 
-import("linky")
-.then(ns => {  
-this.session = 	new ns.Session(this.fstoken,this.usagePointId);
-})
-.catch(error => {
-    	this.log.error(error);
-});	
+
+
+	import("linky")
+		.then(ns => {
+			this.session = new ns.Session(this.fstoken, this.usagePointId);
+			this.session.userAgent ='Homebridge EnergyMeter';
+		})
+		.catch(error => {
+			this.log.error(error);
+		});
 
 };
 
-EnergyMeter.prototype.isValidDate= function(d) {
+EnergyMeter.prototype.isValidDate = function (d) {
 	return d instanceof Date && !isNaN(d);
-  }
+}
 
 EnergyMeter.prototype.loadState = function () {
 	try {
@@ -220,17 +223,34 @@ EnergyMeter.prototype.loadState = function () {
 
 		const stored = JSON.parse(rawFile);
 
-				this.fstoken = stored.fstoken || "";
-				this.historyService.currentEntry = stored.uploadEntry || 0;
+		this.fstoken = stored.fstoken || "";
+		this.historyService.currentEntry = stored.uploadEntry || 0;
 		this.totalPowerConsumption = stored.total || 0;
+
+		try {
+			if (stored.configdate == undefined) {
+				this.configdate = this.configFirstDate;
+			}
+
+			if (new Date(stored.configdate).valueOf() != this.configFirstDate.valueOf()) {
+				stored.firstdate = null;
+			}
+
+		} catch (error) {
+
+		}
+
 		try {
 			if (stored.firstdate == undefined) {
 				this.firstdate = new Date(this.configFirstDate);
 			} else {
+
 				this.firstdate = new Date(stored.firstdate);
 				this.firstdate.setHours(0, -this.firstdate.getTimezoneOffset(), 0, 0);
 			}
 		} catch (error) {
+			this.log('Incorect date');
+
 			this.firstdate = this.getdatenow();
 			this.firstdate.setHours(0, 0, 0, 0);
 		}
@@ -239,10 +259,11 @@ EnergyMeter.prototype.loadState = function () {
 		fs.writeFileSync(
 			this.storagePath,
 			JSON.stringify({
-				 				fstoken: this.fstoken,
-							firstdate: this.firstdate,
+				fstoken: this.fstoken,
+				firstdate: this.firstdate,
 				uploadEntry: this.historyService.currentEntry,
-				total: this.totalPowerConsumption
+				total: this.totalPowerConsumption,
+				configdate: this.configFirstDate
 
 			})
 		);
@@ -260,10 +281,11 @@ EnergyMeter.prototype.saveState = function () {
 	fs.writeFileSync(
 		this.storagePath,
 		JSON.stringify({
-			 			fstoken: this.fstoken,
-			 			firstdate: this.firstdate,
+			fstoken: this.fstoken,
+			firstdate: this.firstdate,
 			uploadEntry: this.historyService.currentEntry,
-			total: this.totalPowerConsumption
+			total: this.totalPowerConsumption,
+			configdate: this.configFirstDate
 
 		})
 	);
@@ -309,69 +331,15 @@ EnergyMeter.prototype.updateState = function () {
 
 		var datenow = this.getdatenow();
 
+
+
 		if (this.EntryAdded && this.historyService.history.length == 1) {
 
 			this.setResetEvent();
 			throw new Error("Error writing history must reset");
 		}
 
-		if (this.historyService.loaded) {
 
-			if (pHomebridge.globalFakeGatoStorage != undefined) {
-
-				if (pHomebridge.globalFakeGatoStorage.writing) {
-					this.waiting_response = false;
-					resolve();
-					return true;
-				}
-			}
-
-			if (this.historyService.transfer) {
-
-				if (this.historyService.currentEntry >= this.historyService.lastEntry) {
-					this.historyService.transfer = false;
-					this.waiting_response = true;
-					this.EntryAdded = false;
-					this.log('Transfer to Eve App Finish');
-					this.historyService.currentEntry = 0;
-					this.historyService.cleanPersist();
-					this.historyService.history = ["noValue"];
-					this.historyService.load((arg, boolvalue) => {
-
-					});
-					this.saveState();
-					this.waiting_response = false;
-					resolve();
-					return true;
-				}
-
-				this.log('Wait pending transfer to Eve App');
-				this.waiting_response = false;
-				resolve();
-				return true;
-			}
-
-			if ((this.historyService.lastEntry - this.historyService.firstEntry) >= (this.historyService.memorySize - 145) && this.historyService.currentEntry < this.historyService.lastEntry) {
-
-				if ((this.historyService.lastEntry - this.historyService.currentEntry) >= (this.historyService.memorySize - 145)) {
-
-					this.log('Persit Memory Full Please push data to Eve App (Refresh) For Prevent lost Data History');
-					this.waiting_response = false;
-					resolve();
-					return true;
-				}
-
-			}
-
-
-
-		} else {
-
-			this.historyService.load();
-			this.waiting_response = false;
-			resolve();
-			return true;
-		}
 
 		this.service.getCharacteristic(this._EveTotalConsumption).setValue(this.totalPowerConsumption, undefined, undefined);
 
