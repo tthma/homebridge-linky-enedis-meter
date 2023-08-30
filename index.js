@@ -179,10 +179,10 @@ function EnergyMeter(log, config) {
 	this.voltage1 = 220;
 	this.ampere1 = 0;
 
-
+ 
 
 	this.historyService = new FakeGatoHistoryService("energy", this, { filename: this.serial + ".json", disableRepeatLastData: true, disableTimer: true, storage: 'fs' });
-	//this.historyService.load();
+
 	this.storagePath = path.join(
 		this.historyService.path,
 		`${config.accessory}.${PowerMeterService.UUID}.json`
@@ -339,7 +339,7 @@ EnergyMeter.prototype.updateState = function () {
 			throw new Error("Error writing history must reset");
 		}
 
-
+ 
 
 		this.service.getCharacteristic(this._EveTotalConsumption).setValue(this.totalPowerConsumption, undefined, undefined);
 
@@ -433,8 +433,9 @@ EnergyMeter.prototype.updateState = function () {
 
 								if (val != undefined) {
 									if (new Date(val.date).getMonth() == datenow.getMonth() && new Date(val.date).getFullYear() == datenow.getFullYear()) {
-										if (Number.isInteger(val.value)) {
-											this.totalPowerConsumption = this.totalPowerConsumption + ((val.value / 1000) / 2);
+										 var conso = parseInt(val.value);
+										if (Number.isInteger(conso)) {
+											this.totalPowerConsumption = this.totalPowerConsumption + ((conso / 1000) / 2);
 										}
 									}
 								}
