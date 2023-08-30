@@ -202,7 +202,7 @@ function EnergyMeter(log, config) {
 	import("linky")
 		.then(ns => {
 			this.session = new ns.Session(this.fstoken, this.usagePointId);
-			this.session.userAgent ='Homebridge EnergyMeter';
+		 
 		})
 		.catch(error => {
 			this.log.error(error);
